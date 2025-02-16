@@ -1,12 +1,11 @@
 package handlers
 
 import (
-	"encoding/json"
-	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/yourusername/go-links/internal/models"
+	"github.com/devingoodsell/go-links-free/internal/models"
+	"github.com/gin-gonic/gin"
 )
 
 type AdminHandler struct {
@@ -27,50 +26,48 @@ func NewAdminHandler(
 	}
 }
 
-func (h *AdminHandler) GetSystemStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := h.analyticsRepo.GetSystemStats(r.Context())
+func (h *AdminHandler) GetSystemStats(c *gin.Context) {
+	stats, err := h.analyticsRepo.GetSystemStats(c.Request.Context())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-
-	writeJSON(w, stats)
+	c.JSON(200, stats)
 }
 
-func (h *AdminHandler) GetRedirectsOverTime(w http.ResponseWriter, r *http.Request) {
-	period := r.URL.Query().Get("period")
+func (h *AdminHandler) GetRedirectsOverTime(c *gin.Context) {
+	period := c.Query("period")
 	if period == "" {
 		period = "daily"
 	}
 
-	data, err := h.analyticsRepo.GetRedirectsOverTime(r.Context(), period)
+	data, err := h.analyticsRepo.GetRedirectsOverTime(c.Request.Context(), period)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-
-	writeJSON(w, data)
+	c.JSON(200, data)
 }
 
 // Add admin-specific link management endpoints
-func (h *AdminHandler) ListAllLinks(w http.ResponseWriter, r *http.Request) {
-	// Similar to regular list but without user filtering
+func (h *AdminHandler) ListAllLinks(c *gin.Context) {
 	// TODO: Implement with pagination and filtering options
+	c.JSON(501, gin.H{"error": "not implemented"})
 }
 
-func (h *AdminHandler) UpdateLinkAdmin(w http.ResponseWriter, r *http.Request) {
-	// Similar to regular update but with additional admin capabilities
+func (h *AdminHandler) UpdateLinkAdmin(c *gin.Context) {
 	// TODO: Implement
+	c.JSON(501, gin.H{"error": "not implemented"})
 }
 
-func (h *AdminHandler) GetPopularLinks(w http.ResponseWriter, r *http.Request) {
-	period := r.URL.Query().Get("period")
+func (h *AdminHandler) GetPopularLinks(c *gin.Context) {
+	period := c.Query("period")
 	if period == "" {
 		period = "daily"
 	}
 
 	limit := 10 // Default limit
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+	if limitStr := c.Query("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			limit = parsedLimit
 			if limit > 100 { // Maximum limit
@@ -79,18 +76,18 @@ func (h *AdminHandler) GetPopularLinks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	links, err := h.analyticsRepo.GetPopularLinks(r.Context(), limit, period)
+	links, err := h.analyticsRepo.GetPopularLinks(c.Request.Context(), limit, period)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, links)
+	c.JSON(200, links)
 }
 
-func (h *AdminHandler) GetUserActivity(w http.ResponseWriter, r *http.Request) {
+func (h *AdminHandler) GetUserActivity(c *gin.Context) {
 	days := 30 // Default to last 30 days
-	if daysStr := r.URL.Query().Get("days"); daysStr != "" {
+	if daysStr := c.Query("days"); daysStr != "" {
 		if parsedDays, err := strconv.Atoi(daysStr); err == nil && parsedDays > 0 {
 			days = parsedDays
 			if days > 365 { // Maximum lookback period
@@ -99,18 +96,18 @@ func (h *AdminHandler) GetUserActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	activities, err := h.analyticsRepo.GetUserActivity(r.Context(), days)
+	activities, err := h.analyticsRepo.GetUserActivity(c.Request.Context(), days)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, activities)
+	c.JSON(200, activities)
 }
 
-func (h *AdminHandler) GetTopDomains(w http.ResponseWriter, r *http.Request) {
+func (h *AdminHandler) GetTopDomains(c *gin.Context) {
 	limit := 10 // Default limit
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+	if limitStr := c.Query("limit"); limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			limit = parsedLimit
 			if limit > 50 { // Maximum limit
@@ -119,17 +116,17 @@ func (h *AdminHandler) GetTopDomains(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	stats, err := h.analyticsRepo.GetTopDomains(r.Context(), limit)
+	stats, err := h.analyticsRepo.GetTopDomains(c.Request.Context(), limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, stats)
+	c.JSON(200, stats)
 }
 
-func (h *AdminHandler) GetPeakUsage(w http.ResponseWriter, r *http.Request) {
-	dateStr := r.URL.Query().Get("date")
+func (h *AdminHandler) GetPeakUsage(c *gin.Context) {
+	dateStr := c.Query("date")
 	var date time.Time
 	var err error
 
@@ -138,36 +135,44 @@ func (h *AdminHandler) GetPeakUsage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		date, err = time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			http.Error(w, "invalid date format (use YYYY-MM-DD)", http.StatusBadRequest)
+			c.JSON(400, gin.H{"error": "invalid date format (use YYYY-MM-DD)"})
 			return
 		}
 	}
 
-	stats, err := h.analyticsRepo.GetPeakUsage(r.Context(), date)
+	stats, err := h.analyticsRepo.GetPeakUsage(c.Request.Context(), date)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, stats)
+	c.JSON(200, stats)
 }
 
-func (h *AdminHandler) GetPerformanceMetrics(w http.ResponseWriter, r *http.Request) {
-	window := r.URL.Query().Get("window")
+func (h *AdminHandler) GetPerformanceMetrics(c *gin.Context) {
+	window := c.Query("window")
 	if window == "" {
 		window = "hour"
 	}
 
 	if window != "hour" && window != "day" && window != "week" && window != "month" {
-		http.Error(w, "invalid window (use hour, day, week, or month)", http.StatusBadRequest)
+		c.JSON(400, gin.H{"error": "invalid window (use hour, day, week, or month)"})
 		return
 	}
 
-	metrics, err := h.analyticsRepo.GetPerformanceMetrics(r.Context(), window)
+	metrics, err := h.analyticsRepo.GetPerformanceMetrics(c.Request.Context(), window)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	writeJSON(w, metrics)
-} 
+	c.JSON(200, metrics)
+}
+
+func (h *AdminHandler) GetUsers(c *gin.Context) {
+	// ... existing code ...
+}
+
+func (h *AdminHandler) GetUser(c *gin.Context) {
+	// ... existing code ...
+}

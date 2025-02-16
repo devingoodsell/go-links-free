@@ -5,7 +5,7 @@ import { api } from '../utils/api';
 import { useState } from 'react';
 
 async function updateUserFetcher(url: string, { arg }: { arg: Partial<User> & { id: number } }) {
-  const { data } = await api.put(`/users/${arg.id}`, arg);
+  const { data } = await api.put(`/api/users/${arg.id}`, arg);
   return data;
 }
 

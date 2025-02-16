@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"log"
 	"time"
 
-	"github.com/yourusername/go-links/internal/db"
+	"github.com/devingoodsell/go-links-free/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -28,21 +30,21 @@ func (r *UserRepository) Create(ctx context.Context, user *User, password string
 	query := `
 		INSERT INTO users (email, password_hash, is_admin)
 		VALUES ($1, $2, $3)
-		RETURNING id, created_at, updated_at`
+		RETURNING id, created_at`
 
 	err = r.db.QueryRowContext(
 		ctx, query,
 		user.Email,
 		string(hashedPassword),
 		user.IsAdmin,
-	).Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.CreatedAt)
 
 	return err
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
-		SELECT id, email, password_hash, is_admin, created_at, updated_at
+		SELECT id, email, password_hash, is_admin, created_at, last_login_at
 		FROM users
 		WHERE email = $1`
 
@@ -53,13 +55,14 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*User, e
 		&user.PasswordHash,
 		&user.IsAdmin,
 		&user.CreatedAt,
-		&user.UpdatedAt,
+		&user.LastLoginAt,
 	)
 
 	if err == sql.ErrNoRows {
 		return nil, errors.New("user not found")
 	}
 	if err != nil {
+		log.Printf("Database error getting user: %v", err)
 		return nil, err
 	}
 
@@ -107,4 +110,21 @@ func (r *UserRepository) SetAdminStatus(ctx context.Context, userID int64, isAdm
 	}
 
 	return nil
-} 
+}
+
+func (r *UserRepository) UpdateLastLogin(ctx context.Context, userID int64, lastLoginAt *time.Time) error {
+	query := `
+		UPDATE users 
+		SET last_login_at = $1 
+		WHERE id = $2
+		RETURNING id, last_login_at`
+
+	var updatedID int64
+	var updatedTime time.Time
+	err := r.db.QueryRowContext(ctx, query, lastLoginAt, userID).Scan(&updatedID, &updatedTime)
+	if err != nil {
+		return fmt.Errorf("failed to update last login: %v", err)
+	}
+
+	return nil
+}

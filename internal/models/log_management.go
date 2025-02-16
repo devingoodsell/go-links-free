@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yourusername/go-links/internal/db"
+	"github.com/devingoodsell/go-links-free/internal/db"
 )
 
 type LogRetentionPolicy struct {
-	DetailedRetentionDays int // Keep detailed logs for this many days
+	DetailedRetentionDays  int // Keep detailed logs for this many days
 	AggregateRetentionDays int // Keep aggregated statistics for this many days
-	BatchSize int // Number of records to delete in each batch
-	MaxDeletionsPerRun int // Maximum number of records to delete per cleanup run
+	BatchSize              int // Number of records to delete in each batch
+	MaxDeletionsPerRun     int // Maximum number of records to delete per cleanup run
 }
 
 type LogManager struct {
-	db *db.DB
+	db     *db.DB
 	policy LogRetentionPolicy
 }
 
@@ -35,7 +35,7 @@ func NewLogManager(db *db.DB, policy LogRetentionPolicy) *LogManager {
 	}
 
 	return &LogManager{
-		db: db,
+		db:     db,
 		policy: policy,
 	}
 }
@@ -168,4 +168,4 @@ func (m *LogManager) getDistinctDates(ctx context.Context, cutoff time.Time) ([]
 	}
 
 	return dates, nil
-} 
+}

@@ -6,7 +6,7 @@ export const useSystemStats = () => {
   return useQuery({
     queryKey: ['systemStats'],
     queryFn: async (): Promise<SystemStats> => {
-      const { data } = await api.get('/analytics/system');
+      const { data } = await api.get('/api/analytics/system');
       return data;
     }
   });
@@ -15,7 +15,7 @@ export const useSystemStats = () => {
 export const useRedirectStats = () => {
   return useQuery({
     queryKey: ['redirectStats'],
-    queryFn: () => api.get('/api/admin/stats/redirects').then(res => res.data),
+    queryFn: () => api.get('/api/stats/redirects').then(res => res.data),
     refetchInterval: 60000,
   });
 };
@@ -23,7 +23,7 @@ export const useRedirectStats = () => {
 export const usePeakUsage = () => {
   return useQuery({
     queryKey: ['peakUsage'],
-    queryFn: () => api.get('/api/admin/stats/peak-usage').then(res => res.data),
+    queryFn: () => api.get('/api/stats/peak-usage').then(res => res.data),
     refetchInterval: 300000, // Refetch every 5 minutes
   });
 }; 

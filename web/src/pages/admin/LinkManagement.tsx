@@ -59,7 +59,7 @@ export const LinkManagement: React.FC = () => {
     severity: 'success' | 'error';
   }>({ open: false, message: '', severity: 'success' });
   
-  const { data, isLoading, error, refetch } = useLinks({
+  const { links, totalCount, isLoading, error, refetch } = useLinks({
     search: searchQuery,
     status: filters.status as 'active' | 'expired',
     sortBy: filters.sortBy as 'created_desc' | 'created_asc' | 'clicks_desc',
@@ -224,14 +224,14 @@ export const LinkManagement: React.FC = () => {
         </Box>
         <Box sx={{ height: 600, width: '100%' }}>
           <DataGrid
-            rows={data?.items || []}
+            rows={links || []}
             columns={columns}
             initialState={{
               pagination: {
                 paginationModel: { page, pageSize },
               },
             }}
-            rowCount={data?.totalCount || 0}
+            rowCount={totalCount || 0}
             paginationMode="server"
             onPaginationModelChange={({ page, pageSize }) => {
               handlePageChange(page, async () => { await refetch(); });

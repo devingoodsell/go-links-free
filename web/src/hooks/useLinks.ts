@@ -1,9 +1,8 @@
-import useSWR, { useSWRConfig } from 'swr';
+import React, { useCallback } from 'react';
+import useSWR, { useSWRConfig, type KeyedMutator, type SWRResponse } from 'swr';
 import type { AxiosResponse } from 'axios';
 import { api } from '../utils/api';
-import { Link } from '../types/link';
-import { useMemo, useCallback } from 'react';
-import type { MutatorCallback } from 'swr/_internal';
+import type { Link } from '../types/link';
 import type { ListResponse } from '../types/api';
 
 interface UseLinksOptions {
@@ -15,48 +14,58 @@ interface UseLinksOptions {
 }
 
 interface UseLinksReturn {
-  data: ListResponse<Link> | undefined;
-  error: Error | undefined;
+  links: Link[];
+  totalCount: number;
   isLoading: boolean;
-  refetch: () => Promise<ListResponse<Link> | undefined>;
-  sortBy: string | undefined;
-  sortDirection: 'asc' | 'desc' | undefined;
-  handleSortChange: (field: string, direction: 'asc' | 'desc') => Promise<void>;
+  error: Error | undefined;
+  createLink: (linkData: { url: string; alias?: string }) => Promise<Link>;
+  updateLink: (alias: string, updates: Partial<Link>) => Promise<Link>;
+  deleteLink: (alias: string) => Promise<void>;
+  refetch: KeyedMutator<ListResponse<Link>>;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+  handleSortChange?: (field: string, direction: 'asc' | 'desc') => Promise<void>;
 }
 
-export const useLinks = (options: UseLinksOptions = {}): UseLinksReturn => {
+interface CreateLinkData {
+  destinationUrl: string;
+  alias?: string;
+}
+
+export const useLinks = (options: UseLinksOptions = {}) => {
   const { data, error, mutate } = useSWR<ListResponse<Link>>(
-    ['/links', options],
+    ['/api/links', options],
     async () => {
-      const { data } = await api.get('/links', { params: options });
-      return data;
-    },
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      dedupingInterval: 60000,
+      const { data } = await api.get('/api/links', { 
+        params: {
+          page: options.page,
+          pageSize: options.pageSize
+        }
+      });
+      // If the response is null, return an empty list response
+      return data || { items: [], totalCount: 0 };
     }
   );
 
   return {
-    data,
+    links: data?.items || [],
+    totalCount: data?.totalCount || 0,
+    isLoading: typeof data === 'undefined' && !error,
     error,
-    isLoading: !data && !error,
-    refetch: () => mutate(),
-    sortBy: options.sortBy,
-    sortDirection: options.sortBy?.endsWith('_desc') ? 'desc' : 'asc',
-    handleSortChange: async (field: string, direction: 'asc' | 'desc') => {
-      const newSortBy = `${field}_${direction}` as UseLinksOptions['sortBy'];
-      await mutate(
-        async (currentData) => {
-          const { data } = await api.get('/links', { 
-            params: { ...options, sortBy: newSortBy }
-          });
-          return data;
-        },
-        { revalidate: false }
-      );
-    }
+    createLink: async (linkData: CreateLinkData) => {
+      const { data } = await api.post('/api/links', linkData);
+      await mutate();
+      return data;
+    },
+    deleteLink: async (id: number) => {
+      await api.delete(`/api/links/delete/${id}`);
+      await mutate();
+    },
+    updateLink: async (id: number, updates: { destinationUrl: string }) => {
+      await api.put(`/api/links/${id}`, updates);
+      await mutate();
+    },
+    refetch: () => mutate()
   };
 };
 
@@ -75,12 +84,12 @@ export const useUpdateLink = () => {
       ((currentData?: ListResponse<Link>) => currentData ? {
         ...currentData,
         items: currentData.items.map(item => item.id === link.id ? { ...item, ...link } : item)
-      } : undefined) as MutatorCallback<ListResponse<Link>>,
+      } : undefined),
       { revalidate: false }
     );
     
     try {
-      const result = await api.put(`/api/admin/links/${link.id}`, link)
+      const result = await api.put(`/api/links/${link.id}`, link)
         .then((res: AxiosResponse<Link>) => res.data);
       return result;
     } catch (error) {
@@ -113,12 +122,12 @@ export const useDeleteLink = () => {
         ...currentData,
         items: currentData.items.filter(item => item.id !== id),
         totalCount: currentData.totalCount - 1
-      } : undefined) as MutatorCallback<ListResponse<Link>>,
+      } : undefined),
       { revalidate: false }
     );
     
     try {
-      const result = await api.delete(`/api/admin/links/${id}`)
+      const result = await api.delete(`/api/links/${id}`)
         .then((res: AxiosResponse<void>) => res.data);
       return result;
     } catch (error) {

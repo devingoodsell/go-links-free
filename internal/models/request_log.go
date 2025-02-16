@@ -6,29 +6,29 @@ import (
 	"net"
 	"time"
 
-	"github.com/yourusername/go-links/internal/db"
+	"github.com/devingoodsell/go-links-free/internal/db"
 	"github.com/google/uuid"
 )
 
 type RequestLog struct {
-	ID            int64           `json:"id"`
-	Timestamp     time.Time       `json:"timestamp"`
-	Path          string          `json:"path"`
-	Method        string          `json:"method"`
-	StatusCode    int             `json:"status_code"`
-	ResponseTime  float64         `json:"response_time"` // in milliseconds
-	UserID        *int64          `json:"user_id,omitempty"`
-	ErrorMessage  *string         `json:"error_message,omitempty"`
-	IPAddress     net.IP          `json:"ip_address"`
-	UserAgent     string          `json:"user_agent"`
-	Referer       string          `json:"referer"`
-	RequestSize   int64           `json:"request_size"`
-	ResponseSize  int64           `json:"response_size"`
-	Host          string          `json:"host"`
-	Protocol      string          `json:"protocol"`
-	QueryParams   string          `json:"query_params"`
+	ID             int64           `json:"id"`
+	Timestamp      time.Time       `json:"timestamp"`
+	Path           string          `json:"path"`
+	Method         string          `json:"method"`
+	StatusCode     int             `json:"status_code"`
+	ResponseTime   float64         `json:"response_time"` // in milliseconds
+	UserID         *int64          `json:"user_id,omitempty"`
+	ErrorMessage   *string         `json:"error_message,omitempty"`
+	IPAddress      net.IP          `json:"ip_address"`
+	UserAgent      string          `json:"user_agent"`
+	Referer        string          `json:"referer"`
+	RequestSize    int64           `json:"request_size"`
+	ResponseSize   int64           `json:"response_size"`
+	Host           string          `json:"host"`
+	Protocol       string          `json:"protocol"`
+	QueryParams    string          `json:"query_params"`
 	RequestHeaders json.RawMessage `json:"request_headers"`
-	TraceID       uuid.UUID       `json:"trace_id"`
+	TraceID        uuid.UUID       `json:"trace_id"`
 }
 
 type RequestLogRepository struct {
@@ -120,4 +120,4 @@ func (r *RequestLogRepository) CreateBatch(ctx context.Context, logs []*RequestL
 	}
 
 	return tx.Commit()
-} 
+}

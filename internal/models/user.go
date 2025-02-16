@@ -5,10 +5,10 @@ import (
 )
 
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	IsAdmin      bool      `json:"is_admin"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-} 
+	ID           int64      `json:"id"`
+	Email        string     `json:"email"`
+	PasswordHash string     `json:"-"`
+	IsAdmin      bool       `json:"isAdmin"`
+	CreatedAt    time.Time  `json:"createdAt,omitempty"`
+	LastLoginAt  *time.Time `json:"lastLoginAt,omitempty"`
+}

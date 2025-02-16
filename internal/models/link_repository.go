@@ -3,11 +3,10 @@ package models
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"time"
+	"log"
 
-	"github.com/yourusername/go-links/internal/db"
+	"github.com/devingoodsell/go-links-free/internal/db"
 	"github.com/lib/pq"
 )
 
@@ -21,8 +20,8 @@ func NewLinkRepository(db *db.DB) *LinkRepository {
 
 func (r *LinkRepository) Create(ctx context.Context, link *Link) error {
 	query := `
-		INSERT INTO links (alias, destination_url, created_by, expires_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO links (alias, destination_url, created_by, expires_at, is_active)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at, updated_at`
 
 	err := r.db.QueryRowContext(
@@ -31,9 +30,14 @@ func (r *LinkRepository) Create(ctx context.Context, link *Link) error {
 		link.DestinationURL,
 		link.CreatedBy,
 		link.ExpiresAt,
+		link.IsActive,
 	).Scan(&link.ID, &link.CreatedAt, &link.UpdatedAt)
 
 	if err != nil {
+		// Check for duplicate alias
+		if isPgDuplicateError(err) {
+			return ErrDuplicate
+		}
 		return err
 	}
 
@@ -50,7 +54,8 @@ func (r *LinkRepository) GetByAlias(ctx context.Context, alias string) (*Link, e
 	query := `
 		SELECT l.id, l.alias, l.destination_url, l.created_by, l.expires_at,
 			   l.created_at, l.updated_at,
-			   s.daily_count, s.weekly_count, s.total_count, s.last_accessed_at
+			   COALESCE(s.daily_count, 0), COALESCE(s.weekly_count, 0),
+			   COALESCE(s.total_count, 0), s.last_accessed_at as "lastAccessedAt"
 		FROM links l
 		LEFT JOIN link_stats s ON l.id = s.link_id
 		WHERE l.alias = $1`
@@ -64,7 +69,7 @@ func (r *LinkRepository) GetByAlias(ctx context.Context, alias string) (*Link, e
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, errors.New("link not found")
+		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -122,9 +127,9 @@ func (r *LinkRepository) ListByUser(ctx context.Context, userID int64) ([]*Link,
 
 func (r *LinkRepository) Update(ctx context.Context, link *Link) error {
 	query := `
-		UPDATE links
+		UPDATE links 
 		SET destination_url = $1, expires_at = $2, updated_at = NOW()
-		WHERE id = $3
+		WHERE id = $3 AND created_by = $4
 		RETURNING updated_at`
 
 	err := r.db.QueryRowContext(
@@ -132,13 +137,19 @@ func (r *LinkRepository) Update(ctx context.Context, link *Link) error {
 		link.DestinationURL,
 		link.ExpiresAt,
 		link.ID,
+		link.CreatedBy,
 	).Scan(&link.UpdatedAt)
 
+	if err == sql.ErrNoRows {
+		return ErrNotFound
+	}
 	return err
 }
 
-func (r *LinkRepository) Delete(ctx context.Context, id int64) error {
-	// Start a transaction to ensure both link and stats are deleted
+func (r *LinkRepository) Delete(ctx context.Context, id int64, userID int64) error {
+	log.Printf("Delete called with id=%d, userID=%d", id, userID)
+
+	// Start a transaction
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -146,13 +157,17 @@ func (r *LinkRepository) Delete(ctx context.Context, id int64) error {
 	defer tx.Rollback()
 
 	// Delete stats first due to foreign key constraint
-	_, err = tx.ExecContext(ctx, "DELETE FROM link_stats WHERE link_id = $1", id)
+	_, err = tx.ExecContext(ctx,
+		"DELETE FROM link_stats WHERE link_id = $1",
+		id)
 	if err != nil {
 		return err
 	}
 
-	// Delete the link
-	result, err := tx.ExecContext(ctx, "DELETE FROM links WHERE id = $1", id)
+	// Then delete the link
+	result, err := tx.ExecContext(ctx,
+		"DELETE FROM links WHERE id = $1 AND created_by = $2",
+		id, userID)
 	if err != nil {
 		return err
 	}
@@ -163,18 +178,10 @@ func (r *LinkRepository) Delete(ctx context.Context, id int64) error {
 	}
 
 	if rowsAffected == 0 {
-		return errors.New("link not found")
+		return ErrNotFound
 	}
 
 	return tx.Commit()
-}
-
-type ListOptions struct {
-	Limit  int
-	Offset int
-	Search string
-	Status string
-	SortBy string
 }
 
 type ListResult struct {
@@ -259,6 +266,13 @@ func (r *LinkRepository) ListByUserWithFilters(ctx context.Context, userID int64
 		args = append(args, "%"+opts.Search+"%")
 	}
 
+	// Add domain filter
+	if opts.Domain != "" {
+		argCount++
+		query += fmt.Sprintf(` AND l.destination_url ILIKE $%d`, argCount)
+		args = append(args, "%"+opts.Domain+"%")
+	}
+
 	// Add status filter
 	if opts.Status == "active" {
 		query += ` AND (l.expires_at IS NULL OR l.expires_at > NOW())`
@@ -314,65 +328,138 @@ func (r *LinkRepository) ListByUserWithFilters(ctx context.Context, userID int64
 	return links, nil
 }
 
-// Add new methods for bulk operations
-func (r *LinkRepository) BulkDelete(ctx context.Context, ids []int64) error {
-	// Start a transaction
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// Delete stats first due to foreign key constraint
-	_, err = tx.ExecContext(ctx, 
-		"DELETE FROM link_stats WHERE link_id = ANY($1)", 
-		pq.Array(ids))
-	if err != nil {
-		return err
+// Update these method signatures
+func (r *LinkRepository) BulkDelete(ctx context.Context, userID int64, ids []int64) error {
+	// First verify ownership of all links
+	for _, id := range ids {
+		link, err := r.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if link.CreatedBy != userID {
+			return ErrUnauthorized
+		}
 	}
 
-	// Delete the links
-	result, err := tx.ExecContext(ctx, 
-		"DELETE FROM links WHERE id = ANY($1)", 
-		pq.Array(ids))
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected == 0 {
-		return errors.New("no links found to delete")
-	}
-
-	return tx.Commit()
+	// Then perform the bulk delete
+	query := `DELETE FROM links WHERE id = ANY($1)`
+	_, err := r.db.ExecContext(ctx, query, pq.Array(ids))
+	return err
 }
 
-func (r *LinkRepository) BulkUpdateStatus(ctx context.Context, ids []int64, isActive bool) error {
-	var expiresAt *time.Time
-	if !isActive {
-		now := time.Now()
-		expiresAt = &now
+func (r *LinkRepository) BulkUpdateStatus(ctx context.Context, userID int64, ids []int64, isActive bool) error {
+	// First verify ownership of all links
+	for _, id := range ids {
+		link, err := r.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if link.CreatedBy != userID {
+			return ErrUnauthorized
+		}
 	}
 
-	result, err := r.db.ExecContext(ctx,
-		"UPDATE links SET expires_at = $1, updated_at = NOW() WHERE id = ANY($2)",
-		expiresAt, pq.Array(ids))
+	// Then perform the bulk update
+	query := `UPDATE links SET is_active = $1 WHERE id = ANY($2)`
+	_, err := r.db.ExecContext(ctx, query, isActive, pq.Array(ids))
+	return err
+}
+
+// Helper function to check for Postgres duplicate key error
+func isPgDuplicateError(err error) bool {
+	if pqErr, ok := err.(*pq.Error); ok {
+		return pqErr.Code == "23505" // unique_violation
+	}
+	return false
+}
+
+func (r *LinkRepository) GetByID(ctx context.Context, id int64) (*Link, error) {
+	query := `
+		SELECT l.id, l.alias, l.destination_url, l.created_by, l.expires_at,
+			   l.created_at, l.updated_at,
+			   COALESCE(s.daily_count, 0), COALESCE(s.weekly_count, 0),
+			   COALESCE(s.total_count, 0), s.last_accessed_at as "lastAccessedAt"
+		FROM links l
+		LEFT JOIN link_stats s ON l.id = s.link_id
+		WHERE l.id = $1`
+
+	link := &Link{Stats: &LinkStats{}}
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&link.ID, &link.Alias, &link.DestinationURL, &link.CreatedBy,
+		&link.ExpiresAt, &link.CreatedAt, &link.UpdatedAt,
+		&link.Stats.DailyCount, &link.Stats.WeeklyCount, &link.Stats.TotalCount,
+		&link.Stats.LastAccessedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	return link, nil
+}
+
+func (r *LinkRepository) ListForUser(ctx context.Context, userID int64, page, pageSize int) ([]Link, int64, error) {
+	offset := page * pageSize
+
+	log.Printf("Listing links for user %d, page %d, pageSize %d", userID, page, pageSize)
+
+	// Get total count
+	var total int64
+	err := r.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM links WHERE created_by = $1",
+		userID,
+	).Scan(&total)
 	if err != nil {
-		return err
+		log.Printf("Error getting total count: %v", err)
+		return nil, 0, err
 	}
 
-	if rowsAffected == 0 {
-		return errors.New("no links found to update")
+	log.Printf("Found %d total links", total)
+
+	// Get paginated links
+	query := `
+		SELECT id, alias, destination_url, created_by, expires_at, created_at, updated_at, is_active 
+		FROM links 
+		WHERE created_by = $1 
+		ORDER BY created_at DESC 
+		LIMIT $2 OFFSET $3`
+
+	log.Printf("Executing query: %s with userID=%d, pageSize=%d, offset=%d",
+		query, userID, pageSize, offset)
+
+	rows, err := r.db.QueryContext(ctx, query, userID, pageSize, offset)
+	if err != nil {
+		log.Printf("Error executing query: %v", err)
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var links []Link
+	for rows.Next() {
+		var link Link
+		err := rows.Scan(
+			&link.ID,
+			&link.Alias,
+			&link.DestinationURL,
+			&link.CreatedBy,
+			&link.ExpiresAt,
+			&link.CreatedAt,
+			&link.UpdatedAt,
+			&link.IsActive,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		link.Stats = &LinkStats{} // Initialize empty stats
+		links = append(links, link)
 	}
 
-	return nil
-} 
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return links, total, nil
+}

@@ -62,7 +62,7 @@ export const UserManagement: React.FC = () => {
     count: number;
   }>({ open: false, type: 'delete', count: 0 });
 
-  const { data, isLoading, error, refetch } = useUsers({
+  const { users, totalCount, isLoading, error, refetch } = useUsers({
     search: searchQuery,
     role: filters.role as 'admin' | 'user',
     sortBy: filters.sortBy as 'created_desc' | 'created_asc' | 'last_login_desc',
@@ -202,7 +202,7 @@ export const UserManagement: React.FC = () => {
     }
   };
 
-  if (isLoading && !data) {
+  if (isLoading && !users) {
     return <TableSkeleton rowCount={pageSize} columnCount={5} />;
   }
 
@@ -278,14 +278,14 @@ export const UserManagement: React.FC = () => {
             </Box>
           )}
           <DataGrid
-            rows={data?.items || []}
+            rows={users || []}
             columns={columns}
             initialState={{
               pagination: {
                 paginationModel: { page, pageSize },
               },
             }}
-            rowCount={data?.totalCount || 0}
+            rowCount={totalCount || 0}
             paginationMode="server"
             onPaginationModelChange={({ page: newPage, pageSize: newPageSize }) => {
               handlePageChange(newPage, async () => { await refetch(); });

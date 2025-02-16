@@ -1,11 +1,11 @@
 package middleware
 
 import (
-	"context"
-	"net/http"
 	"strings"
 
-	"github.com/yourusername/go-links/internal/auth"
+	"github.com/gin-gonic/gin"
+
+	"github.com/devingoodsell/go-links-free/internal/auth"
 )
 
 type AuthMiddleware struct {
@@ -16,40 +16,43 @@ func NewAuthMiddleware(jwtManager *auth.JWTManager) *AuthMiddleware {
 	return &AuthMiddleware{jwtManager: jwtManager}
 }
 
-func (m *AuthMiddleware) Authenticate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
+func (m *AuthMiddleware) AuthenticateGin(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
 
-		// Extract token from Bearer scheme
-		tokenParts := strings.Split(authHeader, " ")
-		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
-			http.Error(w, "invalid authorization header", http.StatusUnauthorized)
-			return
-		}
+	// Extract token from Bearer scheme
+	tokenParts := strings.Split(authHeader, " ")
+	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
+		c.AbortWithStatusJSON(401, gin.H{"error": "invalid authorization header"})
+		return
+	}
 
-		claims, err := m.jwtManager.ValidateToken(tokenParts[1])
-		if err != nil {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
-		}
+	claims, err := m.jwtManager.ValidateToken(tokenParts[1])
+	if err != nil {
+		c.AbortWithStatusJSON(401, gin.H{"error": "invalid token"})
+		return
+	}
 
-		// Add claims to request context
-		ctx := context.WithValue(r.Context(), "user", claims)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+	// Add claims to context
+	c.Set("user", claims)
+	c.Next()
 }
 
-func (m *AuthMiddleware) RequireAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := r.Context().Value("user").(*auth.Claims)
-		if !ok || !claims.IsAdmin {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-} 
+func (m *AuthMiddleware) RequireAdminGin(c *gin.Context) {
+	claims, exists := c.Get("user")
+	if !exists {
+		c.AbortWithStatusJSON(401, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userClaims, ok := claims.(*auth.Claims)
+	if !ok || !userClaims.IsAdmin {
+		c.AbortWithStatusJSON(403, gin.H{"error": "forbidden"})
+		return
+	}
+
+	c.Next()
+}

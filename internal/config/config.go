@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -15,11 +18,33 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
+	// Try to load .env file, but don't fail if it doesn't exist
+	_ = godotenv.Load() // Ignore error from .env load
+
+	// Required environment variables
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		return nil, fmt.Errorf("DATABASE_URL environment variable is required")
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
+	}
+
+	// Optional environment variables with defaults
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	enableOktaSSO := os.Getenv("ENABLE_OKTA_SSO") == "true"
+
 	cfg := &Config{
-		Port:          getEnvOrDefault("PORT", "8080"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		EnableOktaSSO: os.Getenv("ENABLE_OKTA_SSO") == "true",
-		JWTSecret:     os.Getenv("JWT_SECRET"),
+		Port:          port,
+		DatabaseURL:   dbURL,
+		JWTSecret:     jwtSecret,
+		EnableOktaSSO: enableOktaSSO,
 	}
 
 	if cfg.EnableOktaSSO {

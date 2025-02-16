@@ -1,13 +1,10 @@
 import axios from 'axios';
 
 export const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: 'http://localhost:8080',
 });
 
-// Add request interceptor to include auth token
+// Add request interceptor to add token
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -16,15 +13,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Add response interceptor to handle errors
+// Add response interceptor to handle auth errors
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized access
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
     return Promise.reject(error);
   }
-); 
+);
+
+// Add a request interceptor to log requests in development
+if (process.env.NODE_ENV === 'development') {
+  api.interceptors.request.use(request => {
+    console.log('API Request:', request.method, request.url);
+    return request;
+  });
+} 

@@ -8,10 +8,13 @@ import {
   GridPaginationModel,
   GridValidRowModel
 } from '@mui/x-data-grid';
+import { Box, CircularProgress } from '@mui/material';
 
-interface Column<T extends GridValidRowModel> extends Omit<GridColDef, 'field'> {
-  field: keyof T;
-  valueGetter?: (value: any, row: T) => any;
+export interface Column<T extends GridValidRowModel> {
+  field: keyof T | string;
+  headerName: string;
+  width: number;
+  valueGetter?: (params: { row: T; value: any }) => any;
   valueFormatter?: (params: { value: any }) => string;
   renderCell?: (params: GridRenderCellParams<T>) => React.ReactNode;
 }
@@ -31,6 +34,7 @@ interface DataGridProps<T extends GridValidRowModel> {
   onSortChange?: (field: string, direction: 'asc' | 'desc') => void;
   onSelectionChange?: (selection: number[]) => void;
   selectionModel?: number[];
+  onRefresh?: () => void;
 }
 
 export function DataGrid<T extends GridValidRowModel>({
@@ -47,7 +51,8 @@ export function DataGrid<T extends GridValidRowModel>({
   onPageSizeChange,
   onSortChange,
   onSelectionChange,
-  selectionModel
+  selectionModel,
+  onRefresh
 }: DataGridProps<T>) {
   const handlePaginationModelChange = (model: GridPaginationModel) => {
     onPageChange?.(model.page);
@@ -65,41 +70,55 @@ export function DataGrid<T extends GridValidRowModel>({
   };
 
   return (
-    <MuiDataGrid
-      rows={data}
-      columns={columns as GridColDef[]}
-      rowCount={totalCount}
-      loading={isLoading}
-      slots={{
-        noRowsOverlay: () => error ? (
-          <div style={{ padding: 16 }}>{error}</div>
-        ) : null
-      }}
-      paginationMode="server"
-      sortingMode="server"
-      filterMode="server"
-      initialState={{
-        pagination: {
-          paginationModel: {
-            pageSize,
-            page,
+    <Box sx={{ width: '100%', height: '100%' }}>
+      <MuiDataGrid
+        rows={data}
+        columns={columns as GridColDef[]}
+        rowCount={totalCount}
+        loading={isLoading}
+        slots={{
+          noRowsOverlay: () => error ? (
+            <div style={{ padding: 16 }}>{error}</div>
+          ) : null
+        }}
+        paginationMode="server"
+        sortingMode="server"
+        filterMode="server"
+        initialState={{
+          pagination: {
+            paginationModel: {
+              pageSize,
+              page,
+            },
           },
-        },
-      }}
-      onPaginationModelChange={handlePaginationModelChange}
-      pageSizeOptions={[10, 25, 50]}
-      sortModel={sortBy ? [{ field: sortBy, sort: sortDirection }] : []}
-      onSortModelChange={handleSortModelChange}
-      checkboxSelection
-      rowSelectionModel={selectionModel}
-      onRowSelectionModelChange={handleSelectionModelChange}
-      disableRowSelectionOnClick
-      autoHeight
-      sx={{
-        '& .MuiDataGrid-cell:focus': {
-          outline: 'none',
-        },
-      }}
-    />
+        }}
+        onPaginationModelChange={handlePaginationModelChange}
+        pageSizeOptions={[10, 25, 50]}
+        sortModel={sortBy ? [{ field: sortBy, sort: sortDirection }] : []}
+        onSortModelChange={handleSortModelChange}
+        checkboxSelection
+        rowSelectionModel={selectionModel}
+        onRowSelectionModelChange={handleSelectionModelChange}
+        disableRowSelectionOnClick
+        autoHeight
+        sx={{
+          '& .MuiDataGrid-cell:focus': {
+            outline: 'none',
+          },
+        }}
+      />
+      {isLoading && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+          }}
+        >
+          <CircularProgress />
+        </Box>
+      )}
+    </Box>
   );
 } 

@@ -103,4 +103,85 @@
 [ ] 8. AWS EKS Setup
     [ ] Kubernetes configuration
     [ ] CI/CD pipeline
-    [ ] Backup system implementation 
+    [ ] Backup system implementation
+
+## Backend API Routes Documentation
+
+### Authentication Routes
+POST /api/auth/register
+- Creates a new user account
+- Body: { email: string, password: string }
+- Returns: { user: User, token: string }
+
+POST /api/auth/login
+- Authenticates a user
+- Body: { email: string, password: string }
+- Returns: { user: User, token: string }
+
+POST /api/auth/logout
+- Logs out the current user
+- Requires: Auth token
+- Returns: 200 OK
+
+### Health Check
+GET /api/health
+- Checks API health
+- Returns: { status: "ok" }
+
+### Link Management
+GET /api/links
+- Lists user's links
+- Requires: Auth token
+- Query params: page, pageSize
+- Returns: { items: Link[], totalCount: number }
+
+POST /api/links
+- Creates a new link
+- Requires: Auth token
+- Body: { url: string, alias?: string }
+- Returns: Link
+
+PUT /api/links/:alias
+- Updates a link
+- Requires: Auth token
+- Body: { url?: string, isActive?: boolean }
+- Returns: Link
+
+DELETE /api/links/:alias
+- Deletes a link
+- Requires: Auth token
+
+GET /api/links/:alias/stats
+- Gets link statistics
+- Requires: Auth token
+- Returns: LinkStats
+
+### Admin Routes
+GET /api/admin/links
+- Lists all links (admin only)
+- Requires: Admin auth token
+- Query params: page, pageSize, search, status
+- Returns: { items: Link[], totalCount: number }
+
+GET /api/admin/stats
+- Gets system statistics (admin only)
+- Requires: Admin auth token
+- Returns: SystemStats
+
+### Public Routes
+GET /go/:alias
+- Redirects to the target URL
+- No auth required
+- Returns: 302 Redirect or 404
+
+## Missing Routes (Need to be implemented)
+- GET /api/auth/me (for getting current user)
+- GET /api/admin/users (for user management)
+- PUT /api/admin/users/:id (for updating users)
+- DELETE /api/admin/users/:id (for deleting users)
+
+## Frontend Alignment Needed
+1. Update auth context to use existing auth endpoints
+2. Remove /api/auth/me references until implemented
+3. Update user management to work with existing endpoints
+4. Add proper error handling for missing endpoints 

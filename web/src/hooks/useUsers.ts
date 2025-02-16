@@ -7,38 +7,27 @@ import type { ListResponse } from '../types/api';
 import { useState } from 'react';
 
 interface UseUsersOptions {
+  page?: number;
+  pageSize?: number;
   search?: string;
   role?: 'admin' | 'user';
   sortBy?: 'created_desc' | 'created_asc' | 'last_login_desc';
-  page?: number;
-  pageSize?: number;
 }
 
-interface UseUsersReturn {
-  data: ListResponse<User> | undefined;
-  error: Error | undefined;
-  isLoading: boolean;
-  refetch: () => Promise<ListResponse<User> | undefined>;
-}
-
-export const useUsers = (options: UseUsersOptions = {}): UseUsersReturn => {
+export const useUsers = (options: UseUsersOptions = {}) => {
   const { data, error, mutate } = useSWR<ListResponse<User>>(
-    ['/users', options],
+    ['/api/admin/users', options],
     async () => {
-      const { data } = await api.get('/users', { params: options });
+      const { data } = await api.get('/api/admin/users', { params: options });
       return data;
-    },
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      dedupingInterval: 5 * 60 * 1000,
     }
   );
 
   return {
-    data,
+    users: data?.items || [],
+    totalCount: data?.totalCount || 0,
+    isLoading: !error && !data,
     error,
-    isLoading: !data && !error,
     refetch: () => mutate()
   };
 };

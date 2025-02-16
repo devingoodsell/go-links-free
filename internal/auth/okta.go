@@ -2,12 +2,9 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"time"
 
-	"github.com/okta/okta-jwt-verifier-golang"
+	jwtverifier "github.com/okta/okta-jwt-verifier-golang"
 	"golang.org/x/oauth2"
 )
 
@@ -26,9 +23,9 @@ type OktaUserInfo struct {
 
 func NewOktaService(orgURL, clientID, clientSecret string, redirectURL string) (*OktaService, error) {
 	toValidate := map[string]string{
-		"clientId":     clientID,
-		"issuer":      fmt.Sprintf("%s/oauth2/default", orgURL),
-		"audience":     "api://default",
+		"clientId": clientID,
+		"issuer":   fmt.Sprintf("%s/oauth2/default", orgURL),
+		"audience": "api://default",
 	}
 
 	jwtVerifier := jwtverifier.JwtVerifier{
@@ -69,9 +66,8 @@ func (s *OktaService) ValidateToken(ctx context.Context, tokenString string) (*O
 		return nil, fmt.Errorf("token validation failed: %v", err)
 	}
 
-	claims := jwt.Claims.(map[string]interface{})
-	
-	// Get user info from Okta
+	claims := jwt.Claims
+
 	userInfo := &OktaUserInfo{
 		Sub:   claims["sub"].(string),
 		Email: claims["email"].(string),
@@ -79,4 +75,4 @@ func (s *OktaService) ValidateToken(ctx context.Context, tokenString string) (*O
 	}
 
 	return userInfo, nil
-} 
+}

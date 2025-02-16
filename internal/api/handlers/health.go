@@ -1,13 +1,15 @@
 package handlers
 
 import (
+	"database/sql"
 	"net/http"
 	"time"
+
 	"github.com/gin-gonic/gin"
 )
 
 type HealthHandler struct {
-	db *sql.DB  // Your database connection
+	db *sql.DB
 }
 
 func NewHealthHandler(db *sql.DB) *HealthHandler {
@@ -18,7 +20,7 @@ func NewHealthHandler(db *sql.DB) *HealthHandler {
 
 func (h *HealthHandler) Check(c *gin.Context) {
 	health := gin.H{
-		"status": "healthy",
+		"status":    "healthy",
 		"timestamp": time.Now().UTC(),
 	}
 
@@ -32,4 +34,16 @@ func (h *HealthHandler) Check(c *gin.Context) {
 
 	health["database"] = "connected"
 	c.JSON(http.StatusOK, health)
-} 
+}
+
+func AddHealthRoutes(router *gin.Engine) {
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+		})
+	})
+}
+
+func HealthCheck(c *gin.Context) {
+	c.JSON(200, gin.H{"status": "ok"})
+}

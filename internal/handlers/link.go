@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"net/url"
 	"strconv"
-	"strings"
 	"time"
-	"url"
 
-	"github.com/gorilla/mux"
-	"github.com/yourusername/go-links/internal/auth"
-	"github.com/yourusername/go-links/internal/models"
+	"github.com/devingoodsell/go-links-free/internal/auth"
+	"github.com/devingoodsell/go-links-free/internal/models"
+	"github.com/gin-gonic/gin"
 )
 
 type LinkHandler struct {
@@ -25,26 +24,31 @@ func NewLinkHandler(linkRepo *models.LinkRepository) *LinkHandler {
 }
 
 type createLinkRequest struct {
-	Alias          string     `json:"alias"`
-	DestinationURL string     `json:"destination_url"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	Alias          string     `json:"alias" binding:"required"`
+	DestinationURL string     `json:"destinationUrl" binding:"required,url"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
+}
+
+type updateLinkRequest struct {
+	DestinationURL string     `json:"destinationUrl" binding:"required,url"`
+	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
 }
 
 type linkResponse struct {
-	ID             int64      `json:"id"`
-	Alias          string     `json:"alias"`
-	DestinationURL string     `json:"destination_url"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID             int64             `json:"id"`
+	Alias          string            `json:"alias"`
+	DestinationURL string            `json:"destination_url"`
+	ExpiresAt      *time.Time        `json:"expires_at,omitempty"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
 	Stats          *models.LinkStats `json:"stats,omitempty"`
 }
 
 type listResponse struct {
 	Links      []linkResponse `json:"links"`
-	TotalCount int           `json:"total_count"`
-	HasMore    bool          `json:"has_more"`
-	NextOffset int           `json:"next_offset,omitempty"`
+	TotalCount int            `json:"total_count"`
+	HasMore    bool           `json:"has_more"`
+	NextOffset int            `json:"next_offset,omitempty"`
 }
 
 // Add new bulk operation handlers
@@ -76,96 +80,95 @@ func validateCreateLinkRequest(req *createLinkRequest) error {
 	return nil
 }
 
-func (h *LinkHandler) Create(w http.ResponseWriter, r *http.Request) {
+func (h *LinkHandler) Create(c *gin.Context) {
 	var req createLinkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	// Validate input
-	if err := validateCreateLinkRequest(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Get user from context
-	claims := r.Context().Value("user").(*auth.Claims)
+	userClaims, _ := c.Get("user")
+	claims := userClaims.(*auth.Claims)
 
 	link := &models.Link{
 		Alias:          req.Alias,
 		DestinationURL: req.DestinationURL,
 		CreatedBy:      claims.UserID,
 		ExpiresAt:      req.ExpiresAt,
+		IsActive:       true,
 	}
 
-	if err := h.linkRepo.Create(r.Context(), link); err != nil {
-		// Check for duplicate alias
-		if strings.Contains(err.Error(), "unique constraint") {
-			http.Error(w, "alias already exists", http.StatusConflict)
-			return
+	if err := h.linkRepo.Create(c.Request.Context(), link); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, link)
+}
+
+func (h *LinkHandler) Redirect(c *gin.Context) {
+	alias := c.Param("alias")
+	link, err := h.linkRepo.GetByAlias(c.Request.Context(), alias)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "link not found"})
+		return
+	}
+
+	if link.ExpiresAt != nil && link.ExpiresAt.Before(time.Now()) {
+		c.JSON(410, gin.H{"error": "link has expired"})
+		return
+	}
+
+	if err := h.linkRepo.IncrementStats(c.Request.Context(), link.ID); err != nil {
+		// Log error but don't fail the redirect
+		// TODO: Add proper logging
+	}
+
+	c.Redirect(302, link.DestinationURL)
+}
+
+func (h *LinkHandler) List(c *gin.Context) {
+	// Get user from context
+	userClaims, exists := c.Get("user")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found in context"})
+		return
+	}
+	claims := userClaims.(*auth.Claims)
+
+	// Parse pagination params
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "0"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+
+	// Get links for user
+	links, total, err := h.linkRepo.ListForUser(c.Request.Context(), claims.UserID, page, pageSize)
+	if err != nil {
+		log.Printf("Error listing links: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Convert to response format
+	response := make([]map[string]interface{}, len(links))
+	for i, link := range links {
+		log.Printf("Link %d: createdAt=%v, isActive=%v", i, link.CreatedAt, link.IsActive) // More specific debug
+		response[i] = map[string]interface{}{
+			"id":             link.ID,
+			"alias":          link.Alias,
+			"destinationUrl": link.DestinationURL,
+			"createdAt":      link.CreatedAt.Format(time.RFC3339), // Format the time explicitly
+			"updatedAt":      link.UpdatedAt.Format(time.RFC3339),
+			"expiresAt":      link.ExpiresAt,
+			"isActive":       link.IsActive,
+			"stats":          link.Stats,
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
 
-	writeJSON(w, linkResponse{
-		ID:             link.ID,
-		Alias:          link.Alias,
-		DestinationURL: link.DestinationURL,
-		ExpiresAt:      link.ExpiresAt,
-		CreatedAt:      link.CreatedAt,
-		UpdatedAt:      link.UpdatedAt,
+	c.JSON(http.StatusOK, gin.H{
+		"items":      response,
+		"totalCount": total,
 	})
-}
-
-func (h *LinkHandler) Redirect(w http.ResponseWriter, r *http.Request) {
-	alias := mux.Vars(r)["alias"]
-
-	link, err := h.linkRepo.GetByAlias(r.Context(), alias)
-	if err != nil {
-		http.Error(w, "link not found", http.StatusNotFound)
-		return
-	}
-
-	// Check if link is expired
-	if link.ExpiresAt != nil && time.Now().After(*link.ExpiresAt) {
-		// Return a special response for expired links
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusGone)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message":         "This link has expired",
-			"destination_url": link.DestinationURL,
-			"expired_at":      link.ExpiresAt,
-		})
-		return
-	}
-
-	// Increment stats asynchronously
-	go h.linkRepo.IncrementStats(r.Context(), link.ID)
-
-	// Perform redirect
-	http.Redirect(w, r, link.DestinationURL, http.StatusTemporaryRedirect)
-}
-
-func (h *LinkHandler) List(w http.ResponseWriter, r *http.Request) {
-	userID := getUserIDFromContext(r.Context())
-
-	opts := models.ListOptions{
-		Limit:  getIntQueryParam(r, "pageSize", 10),
-		Offset: getIntQueryParam(r, "page", 0) * getIntQueryParam(r, "pageSize", 10),
-		Search: r.URL.Query().Get("search"),
-		Status: r.URL.Query().Get("status"),
-		SortBy: r.URL.Query().Get("sortBy"),
-	}
-
-	links, err := h.linkRepo.ListByUserWithFilters(r.Context(), userID, opts)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, links)
 }
 
 func getIntQueryParam(r *http.Request, key string, defaultValue int) int {
@@ -180,109 +183,163 @@ func getIntQueryParam(r *http.Request, key string, defaultValue int) int {
 	return value
 }
 
-func (h *LinkHandler) Update(w http.ResponseWriter, r *http.Request) {
-	alias := mux.Vars(r)["alias"]
-	claims := r.Context().Value("user").(*auth.Claims)
+func (h *LinkHandler) Update(c *gin.Context) {
+	log.Printf("Update request - URL: %s, Params: %v", c.Request.URL.Path, c.Params)
+	log.Printf("Update request body: %s", c.Request.Body)
 
-	var req createLinkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	link, err := h.linkRepo.GetByAlias(r.Context(), alias)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		http.Error(w, "link not found", http.StatusNotFound)
+		log.Printf("Error parsing ID: %v", err)
+		c.JSON(400, gin.H{"error": "invalid link ID"})
 		return
 	}
 
-	// Verify ownership or admin status
-	if link.CreatedBy != claims.UserID && !claims.IsAdmin {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	var req updateLinkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("Error binding JSON: %v", err)
+		c.JSON(400, gin.H{"error": "invalid request body"})
 		return
 	}
 
-	// Update link
+	log.Printf("Update request for ID %d with data: %+v", id, req)
+
+	// Get the link first to verify ownership
+	link, err := h.linkRepo.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "link not found"})
+		return
+	}
+
+	// Verify ownership
+	if link.CreatedBy != getUserIDFromContext(c) {
+		c.JSON(403, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	link.DestinationURL = req.DestinationURL
 	link.ExpiresAt = req.ExpiresAt
 
-	if err := h.linkRepo.Update(r.Context(), link); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.linkRepo.Update(c.Request.Context(), link); err != nil {
+		c.JSON(500, gin.H{"error": "failed to update link"})
 		return
 	}
 
-	writeJSON(w, linkResponse{
-		ID:             link.ID,
-		Alias:          link.Alias,
-		DestinationURL: link.DestinationURL,
-		ExpiresAt:      link.ExpiresAt,
-		CreatedAt:      link.CreatedAt,
-		UpdatedAt:      link.UpdatedAt,
-		Stats:          link.Stats,
+	c.JSON(200, link)
+}
+
+func (h *LinkHandler) Delete(c *gin.Context) {
+	log.Printf("Delete request - URL: %s, Params: %v", c.Request.URL.Path, c.Params)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		log.Printf("Error parsing ID: %v", err)
+		c.JSON(400, gin.H{"error": "invalid link ID"})
+		return
+	}
+
+	userID := getUserIDFromContext(c)
+	log.Printf("Attempting to delete link %d for user %d", id, userID)
+	if err := h.linkRepo.Delete(c.Request.Context(), id, userID); err != nil {
+		log.Printf("Error deleting link: %v", err)
+		c.JSON(500, gin.H{"error": "failed to delete link"})
+		return
+	}
+
+	c.Status(204)
+}
+
+func (h *LinkHandler) BulkDelete(c *gin.Context) {
+	var req struct {
+		IDs []int64 `json:"ids"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		c.JSON(400, gin.H{"error": "no links specified"})
+		return
+	}
+
+	userID := getUserIDFromContext(c)
+	if err := h.linkRepo.BulkDelete(c.Request.Context(), userID, req.IDs); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(204)
+}
+
+func (h *LinkHandler) BulkUpdateStatus(c *gin.Context) {
+	var req struct {
+		IDs      []int64 `json:"ids"`
+		IsActive bool    `json:"is_active"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid request"})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		c.JSON(400, gin.H{"error": "no links specified"})
+		return
+	}
+
+	userID := getUserIDFromContext(c)
+	if err := h.linkRepo.BulkUpdateStatus(c.Request.Context(), userID, req.IDs, req.IsActive); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.Status(204)
+}
+
+func getUserIDFromContext(c *gin.Context) int64 {
+	if claims, exists := c.Get("user"); exists {
+		if userClaims, ok := claims.(*auth.Claims); ok {
+			return userClaims.UserID
+		}
+	}
+	return 0
+}
+
+func (h *LinkHandler) getLinkFromRequest(c *gin.Context) (*models.Link, error) {
+	alias := c.Param("alias")
+	link, err := h.linkRepo.GetByAlias(c.Request.Context(), alias)
+	if err != nil {
+		return nil, errors.New("link not found")
+	}
+
+	// Verify ownership
+	userID := getUserIDFromContext(c)
+	if link.CreatedBy != userID {
+		return nil, models.ErrUnauthorized
+	}
+
+	return link, nil
+}
+
+func (h *LinkHandler) GetStats(c *gin.Context) {
+	link, err := h.getLinkFromRequest(c)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	if link.Stats == nil {
+		c.JSON(200, gin.H{
+			"daily_count":  0,
+			"weekly_count": 0,
+			"total_count":  0,
+		})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"daily_count":  link.Stats.DailyCount,
+		"weekly_count": link.Stats.WeeklyCount,
+		"total_count":  link.Stats.TotalCount,
 	})
 }
-
-func (h *LinkHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	alias := mux.Vars(r)["alias"]
-	claims := r.Context().Value("user").(*auth.Claims)
-
-	// Get the link first to check ownership
-	link, err := h.linkRepo.GetByAlias(r.Context(), alias)
-	if err != nil {
-		http.Error(w, "link not found", http.StatusNotFound)
-		return
-	}
-
-	// Verify ownership or admin status
-	if link.CreatedBy != claims.UserID && !claims.IsAdmin {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
-	if err := h.linkRepo.Delete(r.Context(), link.ID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *LinkHandler) BulkDelete(w http.ResponseWriter, r *http.Request) {
-	var req bulkActionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(req.IDs) == 0 {
-		http.Error(w, "no links specified", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.linkRepo.BulkDelete(r.Context(), req.IDs); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *LinkHandler) BulkUpdateStatus(w http.ResponseWriter, r *http.Request) {
-	var req bulkStatusUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if len(req.IDs) == 0 {
-		http.Error(w, "no links specified", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.linkRepo.BulkUpdateStatus(r.Context(), req.IDs, req.IsActive); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-} 

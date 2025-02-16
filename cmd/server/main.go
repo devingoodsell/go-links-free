@@ -2,15 +2,17 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/devingoodsell/go-links-free/internal/auth"
 	"github.com/devingoodsell/go-links-free/internal/config"
+	"github.com/devingoodsell/go-links-free/internal/db"
 	"github.com/devingoodsell/go-links-free/internal/handlers"
 	"github.com/devingoodsell/go-links-free/internal/jobs"
 	"github.com/devingoodsell/go-links-free/internal/middleware"
 	"github.com/devingoodsell/go-links-free/internal/models"
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
@@ -20,22 +22,26 @@ func main() {
 	}
 
 	// Initialize DB connection
-	db, err := models.InitDB(cfg.DatabaseURL)
+	database, err := db.NewDB(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
 	// Initialize repositories
-	linkRepo := models.NewLinkRepository(db)
-	analyticsRepo := models.NewAnalyticsRepository(db)
-	userRepo := models.NewUserRepository(db)
+	linkRepo := models.NewLinkRepository(database)
+	analyticsRepo := models.NewAnalyticsRepository(database)
+	userRepo := models.NewUserRepository(database)
+	requestLogRepo := models.NewRequestLogRepository(database)
+
+	// Initialize JWT manager
+	jwtManager := auth.NewJWTManager(cfg.JWTSecret, 24*time.Hour)
 
 	// Initialize auth service
-	authService := auth.NewAuthService(cfg.JWTSecret)
+	authService := auth.NewAuthService(userRepo, jwtManager, cfg.EnableOktaSSO)
 
 	// Initialize middlewares
-	authMiddleware := middleware.NewAuthMiddleware(authService)
-	loggingMiddleware := middleware.NewLoggingMiddleware()
+	authMiddleware := middleware.NewAuthMiddleware(jwtManager)
+	loggingMiddleware := middleware.NewLoggingMiddleware(requestLogRepo)
 
 	// Setup routes with all required dependencies
 	router := handlers.SetupRoutes(
@@ -48,8 +54,22 @@ func main() {
 		userRepo,
 	)
 
+	// Print all registered routes
+	log.Println("\n=== Registered Routes ===")
+	for _, route := range router.Routes() {
+		log.Printf("Route: %s\t%s", route.Method, route.Path)
+	}
+	log.Println("=== End Routes ===\n")
+
+	// Print registered routes
+	for _, route := range router.Routes() {
+		log.Printf("Registered route: %s %s", route.Method, route.Path)
+	}
+
+	log.Printf("Configuration: %+v", cfg)
+
 	// Initialize log manager with retention policy
-	logManager := models.NewLogManager(db, models.LogRetentionPolicy{
+	logManager := models.NewLogManager(database, models.LogRetentionPolicy{
 		DetailedRetentionDays:  30,    // Keep detailed logs for 30 days
 		AggregateRetentionDays: 90,    // Keep aggregated stats for 90 days
 		BatchSize:              1000,  // Delete 1000 records at a time
@@ -61,8 +81,30 @@ func main() {
 	cleanupJob.Start()
 	defer cleanupJob.Stop()
 
+	// Enable CORS
+	r := gin.Default()
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:8081"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+	}))
+
+	// Setup routes with all required dependencies
+	r = handlers.SetupRoutes(
+		cfg,
+		authService,
+		authMiddleware,
+		loggingMiddleware,
+		linkRepo,
+		analyticsRepo,
+		userRepo,
+	)
+
+	// Start server
 	log.Printf("Starting server on :%s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, router); err != nil {
+	if err := r.Run(":" + cfg.Port); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

@@ -32,19 +32,19 @@ CREATE TABLE request_logs (
     path VARCHAR(255) NOT NULL,
     method VARCHAR(10) NOT NULL,
     status_code INTEGER NOT NULL,
-    response_time FLOAT NOT NULL, -- in milliseconds
+    response_time FLOAT NOT NULL,
     user_id INTEGER REFERENCES users(id),
     error_message TEXT,
     ip_address INET,
     user_agent TEXT,
     referer TEXT,
-    request_size INTEGER, -- in bytes
-    response_size INTEGER, -- in bytes
+    request_size INTEGER,
+    response_size INTEGER,
     host VARCHAR(255),
     protocol VARCHAR(10),
     query_params TEXT,
     request_headers JSONB,
-    trace_id UUID -- for request tracing
+    trace_id UUID
 );
 
 CREATE TABLE request_log_aggregates (

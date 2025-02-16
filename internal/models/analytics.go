@@ -3,17 +3,20 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
+
+	"github.com/devingoodsell/go-links-free/internal/db"
 )
 
 type SystemStats struct {
-	DailyActiveUsers  int       `json:"daily_active_users"`
+	DailyActiveUsers   int       `json:"daily_active_users"`
 	MonthlyActiveUsers int       `json:"monthly_active_users"`
-	TotalLinks        int       `json:"total_links"`
-	ActiveLinks       int       `json:"active_links"`
-	ExpiredLinks      int       `json:"expired_links"`
-	TotalRedirects    int       `json:"total_redirects"`
-	LastUpdated       time.Time `json:"last_updated"`
+	TotalLinks         int       `json:"total_links"`
+	ActiveLinks        int       `json:"active_links"`
+	ExpiredLinks       int       `json:"expired_links"`
+	TotalRedirects     int       `json:"total_redirects"`
+	LastUpdated        time.Time `json:"last_updated"`
 }
 
 type AnalyticsRepository struct {
@@ -243,9 +246,9 @@ func (r *AnalyticsRepository) GetUserActivity(ctx context.Context, days int) ([]
 }
 
 type DomainStats struct {
-	Domain     string `json:"domain"`
-	LinkCount  int    `json:"link_count"`
-	TotalClicks int   `json:"total_clicks"`
+	Domain      string `json:"domain"`
+	LinkCount   int    `json:"link_count"`
+	TotalClicks int    `json:"total_clicks"`
 }
 
 func (r *AnalyticsRepository) GetTopDomains(ctx context.Context, limit int) ([]DomainStats, error) {
@@ -294,19 +297,19 @@ type PeakUsageStats struct {
 		Redirects   int `json:"redirects"`
 		UniqueUsers int `json:"unique_users"`
 	} `json:"hourly_stats"`
-	PeakHour     int       `json:"peak_hour"`
+	PeakHour      int       `json:"peak_hour"`
 	PeakRedirects int       `json:"peak_redirects"`
-	Date         time.Time  `json:"date"`
+	Date          time.Time `json:"date"`
 }
 
 type PerformanceMetrics struct {
 	AverageResponseTime float64   `json:"average_response_time_ms"`
-	P95ResponseTime    float64   `json:"p95_response_time_ms"`
-	P99ResponseTime    float64   `json:"p99_response_time_ms"`
-	ErrorRate          float64   `json:"error_rate"`
-	RequestsPerSecond  float64   `json:"requests_per_second"`
-	TimeWindow         string    `json:"time_window"`
-	LastUpdated        time.Time `json:"last_updated"`
+	P95ResponseTime     float64   `json:"p95_response_time_ms"`
+	P99ResponseTime     float64   `json:"p99_response_time_ms"`
+	ErrorRate           float64   `json:"error_rate"`
+	RequestsPerSecond   float64   `json:"requests_per_second"`
+	TimeWindow          string    `json:"time_window"`
+	LastUpdated         time.Time `json:"last_updated"`
 }
 
 func (r *AnalyticsRepository) GetPeakUsage(ctx context.Context, date time.Time) (*PeakUsageStats, error) {
@@ -400,4 +403,4 @@ func (r *AnalyticsRepository) GetPerformanceMetrics(ctx context.Context, window 
 	}
 
 	return metrics, nil
-} 
+}

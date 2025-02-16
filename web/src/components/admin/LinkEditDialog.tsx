@@ -4,38 +4,21 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Button,
-  Box,
+  TextField,
+  Switch,
+  FormControlLabel,
+  CircularProgress,
   Alert
 } from '@mui/material';
-import { DateTimePicker } from '@mui/x-date-pickers';
 import { useUpdateLink } from '../../hooks/useUpdateLink';
-import type { Link } from '../../types/link';
+import type { Link, LinkFormData } from '../../types/link';
 
 interface LinkEditDialogProps {
   open: boolean;
+  link?: Link;
   onClose: () => void;
   onSave: (link: Link) => Promise<void>;
-  link?: Link;
-}
-
-interface LinkFormData {
-  id?: number;
-  shortLink?: string;
-  targetUrl?: string;
-  expiresAt?: string | null;
-  isActive?: boolean;
-  clicks?: number;
-  createdBy?: number;
-  createdAt?: string;
-  updatedAt?: string;
-  stats?: {
-    dailyCount: number;
-    weeklyCount: number;
-    totalCount: number;
-    lastAccessedAt: string;
-  };
 }
 
 export const LinkEditDialog: React.FC<LinkEditDialogProps> = ({
@@ -44,7 +27,18 @@ export const LinkEditDialog: React.FC<LinkEditDialogProps> = ({
   onSave,
   link
 }) => {
-  const [formData, setFormData] = useState<LinkFormData>(link || {});
+  const initialFormData: LinkFormData = link ? {
+    alias: link.alias,
+    destinationUrl: link.destinationUrl,
+    expiresAt: link.expiresAt,
+    isActive: link.isActive
+  } : {
+    alias: '',
+    destinationUrl: '',
+    isActive: true
+  };
+
+  const [formData, setFormData] = useState<LinkFormData>(initialFormData);
   const [error, setError] = useState<string | null>(null);
   const { mutate, isLoading } = useUpdateLink();
 
@@ -52,73 +46,68 @@ export const LinkEditDialog: React.FC<LinkEditDialogProps> = ({
     e.preventDefault();
     setError(null);
 
-    const linkData: Partial<Link> = {
-      shortLink: formData.shortLink,
-      targetUrl: formData.targetUrl,
-      expiresAt: formData.expiresAt || undefined,
-      isActive: formData.isActive
-    };
-
     try {
-      if (link?.id) {
-        await mutate({ ...linkData, id: link.id });
-      }
-      await onSave(linkData as Link);
+      if (!link) return;
+
+      const updatedLink: Link = {
+        ...link,
+        ...formData
+      };
+
+      await onSave(updatedLink);
       onClose();
     } catch (err) {
-      const error = err as Error;
-      setError(error.message || 'An error occurred');
+      setError(err instanceof Error ? err.message : 'Failed to update link');
     }
   };
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{link ? 'Edit Link' : 'Create Link'}</DialogTitle>
+      <DialogTitle>Edit Link</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-            <TextField
-              label="Short Link"
-              value={formData.shortLink || ''}
-              onChange={(e) => setFormData({ ...formData, shortLink: e.target.value })}
-              required
-            />
-            <TextField
-              label="Target URL"
-              value={formData.targetUrl || ''}
-              onChange={(e) => setFormData({ ...formData, targetUrl: e.target.value })}
-              required
-            />
-            <DateTimePicker
-              label="Expiration Date"
-              value={formData.expiresAt ? new Date(formData.expiresAt) : null}
-              onChange={(date) => setFormData({ 
-                ...formData, 
-                expiresAt: date ? date.toISOString() : null 
-              })}
-              slotProps={{
-                textField: {
-                  fullWidth: true,
-                  helperText: 'Optional: Set an expiration date for this link'
-                }
-              }}
-            />
-          </Box>
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          <TextField
+            label="Alias"
+            fullWidth
+            margin="normal"
+            value={formData.alias}
+            onChange={(e) => setFormData(prev => ({ ...prev, alias: e.target.value }))}
+            disabled={isLoading}
+          />
+          <TextField
+            label="Destination URL"
+            fullWidth
+            margin="normal"
+            value={formData.destinationUrl}
+            onChange={(e) => setFormData(prev => ({ ...prev, destinationUrl: e.target.value }))}
+            disabled={isLoading}
+          />
+          <TextField
+            label="Expires At"
+            type="datetime-local"
+            fullWidth
+            margin="normal"
+            value={formData.expiresAt?.split('.')[0] || ''}
+            onChange={(e) => setFormData(prev => ({ ...prev, expiresAt: e.target.value }))}
+            disabled={isLoading}
+            InputLabelProps={{ shrink: true }}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={formData.isActive}
+                onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.checked }))}
+                disabled={isLoading}
+              />
+            }
+            label="Active"
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button 
-            type="submit" 
-            variant="contained" 
-            color="primary"
-            disabled={isLoading}
-          >
-            {isLoading ? 'Saving...' : 'Save'}
+          <Button type="submit" variant="contained" disabled={isLoading}>
+            {isLoading ? <CircularProgress size={24} /> : 'Save'}
           </Button>
         </DialogActions>
       </form>

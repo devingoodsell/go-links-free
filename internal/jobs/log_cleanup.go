@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/yourusername/go-links/internal/models"
+	"github.com/devingoodsell/go-links-free/internal/models"
 )
 
 type LogCleanupJob struct {
@@ -43,4 +43,4 @@ func (j *LogCleanupJob) Start() {
 
 func (j *LogCleanupJob) Stop() {
 	close(j.stopChan)
-} 
+}

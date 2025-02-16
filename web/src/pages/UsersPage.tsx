@@ -1,31 +1,82 @@
-import { Typography } from '@mui/material';
+import React, { useState } from 'react';
+import { 
+  Box,
+  Typography,
+  Paper,
+  Container,
+} from '@mui/material';
+import { Navigate } from 'react-router-dom';
 import { DataGrid } from '../components/common/DataGrid';
 import { useUsers } from '../hooks/useUsers';
+import { useAuth } from '../hooks/useAuth';
 import type { User } from '../types/user';
+import type { Column } from '../components/common/DataGrid';
 
-export const UsersPage = () => {
-  const { data, isLoading, error } = useUsers();
+export const UsersPage: React.FC = () => {
+  const { user: currentUser } = useAuth();
+  const isAdmin = currentUser?.isAdmin;
 
-  const columns = [
-    { field: 'email' as keyof User, headerName: 'Email' },
-    { field: 'role' as keyof User, headerName: 'Role' },
-    { field: 'lastLoginAt' as keyof User, headerName: 'Last Login' },
-    { field: 'createdAt' as keyof User, headerName: 'Created At' }
+  // Redirect non-admin users to their profile page
+  if (!isAdmin) {
+    return <Navigate to="/profile" replace />;
+  }
+
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+  const { users, totalCount, isLoading, error, refetch } = useUsers({
+    page,
+    pageSize
+  });
+
+  const columns: Column<User>[] = [
+    { field: 'id' as keyof User, headerName: 'ID', width: 90 },
+    { field: 'email' as keyof User, headerName: 'Email', width: 200 },
+    { field: 'isAdmin' as keyof User, headerName: 'Role', width: 130 },
+    { 
+      field: 'createdAt' as keyof User, 
+      headerName: 'Created', 
+      width: 180,
+      valueFormatter: (params) => {
+        if (typeof params.value === 'string') {
+          return new Date(params.value).toLocaleString();
+        }
+        return '';
+      }
+    },
+    { 
+      field: 'lastLoginAt' as keyof User, 
+      headerName: 'Last Login', 
+      width: 180,
+      valueFormatter: (params) => {
+        if (typeof params.value === 'string') {
+          return new Date(params.value).toLocaleString();
+        }
+        return 'Never';
+      }
+    },
   ];
 
   return (
-    <>
-      <Typography variant="h5" gutterBottom>
-        Users
-      </Typography>
-
-      <DataGrid<User>
-        data={data?.items ?? []}
-        columns={columns}
-        isLoading={isLoading}
-        error={error?.message}
-        totalCount={data?.totalCount ?? 0}
-      />
-    </>
+    <Container maxWidth="lg">
+      <Box sx={{ mt: 4, mb: 4 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          User Management
+        </Typography>
+        <Paper sx={{ p: 2, height: 400 }}>
+          <DataGrid<User>
+            data={users}
+            columns={columns}
+            pageSize={pageSize}
+            totalCount={totalCount}
+            isLoading={isLoading}
+            page={page}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            error={error?.message}
+            onRefresh={refetch}
+          />
+        </Paper>
+      </Box>
+    </Container>
   );
 }; 

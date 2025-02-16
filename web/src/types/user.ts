@@ -12,7 +12,7 @@ export interface User {
   role: 'admin' | 'user';
   isActive: boolean;
   lastLoginAt: string | null;
-  createdAt: string;
+  createdAt: string | null;
   updatedAt: string;
   isAdmin: boolean;
   stats?: {
